@@ -1113,6 +1113,42 @@ let scheduleActive = false;
 // Public holidays: { datum: description } — loaded from user input or left empty
 const holidays = {};
 
+// ── State persistence ─────────────────────────────────────────────────────────
+// Single localStorage key stores rules + schedule + holidays.
+// Saved after every mutation. Loaded at boot — overwrites initSchedule() defaults.
+// Uploading a new CSV always overwrites the previously saved data.
+
+const STATE_KEY = 'wcal-state';
+
+function saveState() {
+  try {
+    localStorage.setItem(STATE_KEY, JSON.stringify({
+      rules:     { ...rules },
+      schedule,
+      scheduleActive,
+      holidays:  { ...holidays }
+    }));
+  } catch(e) {}
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STATE_KEY);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    // Restore rules
+    Object.keys(rules).forEach(k => delete rules[k]);
+    Object.assign(rules, s.rules || {});
+    // Restore schedule
+    schedule       = s.schedule       || [];
+    scheduleActive = s.scheduleActive || false;
+    // Restore holidays
+    Object.keys(holidays).forEach(k => delete holidays[k]);
+    Object.assign(holidays, s.holidays || {});
+    return true;
+  } catch(e) { return false; }
+}
+
 // ── Schedule — hardcoded from START-OF-SELECTION ──────────────────────────────
 
 function initSchedule() {
@@ -1493,6 +1529,7 @@ document.getElementById('addOk').onclick = () => {
     showToast(`Rule added for week ${wk}`);
   }
 
+  saveState();
   document.getElementById('modalAdd').classList.add('hidden');
   renderCalendar();
 };
@@ -1512,6 +1549,7 @@ document.getElementById('delOk').onclick = () => {
     return;
   }
   delete rules[wk];
+  saveState();
   document.getElementById('modalDel').classList.add('hidden');
   showToast(`Rule removed for week ${wk}`);
   renderCalendar();
@@ -1523,6 +1561,7 @@ document.getElementById('fabClr').onclick = () => {
   Object.keys(rules).forEach(k => delete rules[k]);
   schedule = [];
   scheduleActive = false;
+  saveState();
   showToast('All week rules and schedule cleared');
   renderCalendar();
 };
@@ -1674,7 +1713,10 @@ document.getElementById('modalImp').onclick = function(e) {
 // ── Load buttons ──────────────────────────────────────────────────────────────
 document.getElementById('impOkHol').onclick = () => {
   if (holParsed.length === 0) { showToast('No valid holidays found in file'); return; }
+  // Clear existing holidays first — new upload always overwrites
+  Object.keys(holidays).forEach(k => delete holidays[k]);
   holParsed.forEach(h => { holidays[h.date] = h.name; });
+  saveState();
   document.getElementById('modalImp').classList.add('hidden');
   showToast(`${holParsed.length} holiday(s) loaded`);
   renderCalendar();
@@ -1682,8 +1724,10 @@ document.getElementById('impOkHol').onclick = () => {
 
 document.getElementById('impOkSched').onclick = () => {
   if (schedParsed.length === 0) { showToast('No valid segments found in file'); return; }
+  // New schedule always replaces the previous one entirely
   schedule = schedParsed;
   scheduleActive = true;
+  saveState();
   document.getElementById('modalImp').classList.add('hidden');
   showToast(`${schedParsed.length} schedule segment(s) loaded`);
   renderCalendar();
@@ -2354,6 +2398,13 @@ onViewportResize();
 
 initSchedule();
 renderCalendar();
+
+// Override initSchedule() defaults with saved state if it exists.
+// loadState() must run AFTER initSchedule() so the fallback is already
+// in place when there is nothing saved yet.
+if (loadState()) {
+  renderCalendar(); // re-render with restored data
+}
 </script>
 </body>
 </html>
