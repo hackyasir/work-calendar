@@ -21,7 +21,7 @@
 -->
 <!-- Fallback CSP via meta (prevents XSS when server headers are unavailable) -->
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; font-src 'self'">
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com; font-src 'self'">
 <title>Work Calendar</title>
 <style>
   /*
@@ -744,6 +744,14 @@
 </head>
 <body>
 
+<!-- Loading banner — shown during GitHub CSV fetch -->
+<div id="loadingBanner" style="display:none; position:fixed; top:0; left:0; right:0;
+  background:var(--accent2); color:#fff; text-align:center; padding:6px; font-size:12px;
+  font-family:var(--cond); font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  z-index:400;">
+  ↻ Loading schedule &amp; holidays…
+</div>
+
 <header class="app-header">
 
   <!-- Left: org name (click to upload logo image when admin) -->
@@ -800,6 +808,7 @@
     <button class="foot-btn add" id="fabAdd">+ Add Rule</button>
     <button class="foot-btn del" id="fabDel">− Remove</button>
     <button class="foot-btn" id="fabImp">↑ Import</button>
+    <button class="foot-btn" id="fabGh">⚙ GitHub</button>
     <button class="foot-btn" id="fabClr">Clear All</button>
   </div>
 
@@ -981,6 +990,34 @@
   </div>
 </div>
 
+<!-- GitHub Data Source Modal (admin only) -->
+<div class="modal-overlay hidden" id="modalGhUrls">
+  <div class="modal">
+    <div class="modal-title">GitHub Data Sources</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">
+      Paste the <strong>raw</strong> GitHub file URLs below.<br>
+      When set, these files are fetched on every page load —<br>
+      updating them on GitHub instantly updates the app for all users.
+    </p>
+    <div class="field-group">
+      <div class="field-label">Holidays CSV — raw GitHub URL</div>
+      <input class="field-input" id="ghHolUrl" type="url"
+             placeholder="https://raw.githubusercontent.com/user/repo/main/holidays.csv">
+      <div class="field-hint">Format per line: YYYYMMDD,Holiday Name</div>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Schedule CSV — raw GitHub URL</div>
+      <input class="field-input" id="ghSchedUrl" type="url"
+             placeholder="https://raw.githubusercontent.com/user/repo/main/schedule.csv">
+      <div class="field-hint">Format: week_from,week_to,type,slot_a,slot_b</div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn-cancel" id="ghUrlCancel">Cancel</button>
+      <button class="btn-ok"     id="ghUrlSave">Save &amp; Reload</button>
+    </div>
+  </div>
+</div>
+
 <!-- Brand Settings Modal (admin only) -->
 <div class="modal-overlay hidden" id="modalBrand">
   <div class="modal">
@@ -1110,43 +1147,65 @@ const rules = {};
 let schedule = [];
 let scheduleActive = false;
 
-// Public holidays: { datum: description } — loaded from user input or left empty
+// Public holidays: { datum: description } — loaded from GitHub CSV
 const holidays = {};
 
-// ── State persistence ─────────────────────────────────────────────────────────
-// Single localStorage key stores rules + schedule + holidays.
-// Saved after every mutation. Loaded at boot — overwrites initSchedule() defaults.
-// Uploading a new CSV always overwrites the previously saved data.
+// ── GitHub data source URLs ───────────────────────────────────────────────────
+// Stored in localStorage (admin-configurable). Empty = use hardcoded defaults.
+const GH_URL_KEY = 'wcal-gh-urls';
 
-const STATE_KEY = 'wcal-state';
-
-function saveState() {
+function getGhUrls() {
   try {
-    localStorage.setItem(STATE_KEY, JSON.stringify({
-      rules:     { ...rules },
-      schedule,
-      scheduleActive,
-      holidays:  { ...holidays }
-    }));
+    const s = localStorage.getItem(GH_URL_KEY);
+    if (s) return JSON.parse(s);
   } catch(e) {}
+  return { holidays: '', schedule: '' };
 }
 
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STATE_KEY);
-    if (!raw) return false;
-    const s = JSON.parse(raw);
-    // Restore rules
-    Object.keys(rules).forEach(k => delete rules[k]);
-    Object.assign(rules, s.rules || {});
-    // Restore schedule
-    schedule       = s.schedule       || [];
-    scheduleActive = s.scheduleActive || false;
-    // Restore holidays
-    Object.keys(holidays).forEach(k => delete holidays[k]);
-    Object.assign(holidays, s.holidays || {});
-    return true;
-  } catch(e) { return false; }
+function setGhUrls(urls) {
+  try { localStorage.setItem(GH_URL_KEY, JSON.stringify(urls)); } catch(e) {}
+}
+
+// ── Fetch and apply GitHub CSVs ───────────────────────────────────────────────
+async function fetchGitHubData() {
+  const urls = getGhUrls();
+  let loaded = false;
+
+  // Show loading indicator
+  document.getElementById('loadingBanner').style.display = '';
+
+  if (urls.schedule) {
+    try {
+      const res = await fetch(urls.schedule, { cache: 'no-cache' });
+      if (res.ok) {
+        const text = await res.text();
+        const parsed = parseScheduleCsv(text);
+        if (parsed.length > 0) {
+          schedule = parsed;
+          scheduleActive = true;
+          loaded = true;
+        }
+      }
+    } catch(e) { console.warn('Schedule fetch failed:', e); }
+  }
+
+  if (urls.holidays) {
+    try {
+      const res = await fetch(urls.holidays, { cache: 'no-cache' });
+      if (res.ok) {
+        const text = await res.text();
+        const parsed = parseHolidayCsv(text);
+        if (parsed.length > 0) {
+          Object.keys(holidays).forEach(k => delete holidays[k]);
+          parsed.forEach(h => { holidays[h.date] = h.name; });
+          loaded = true;
+        }
+      }
+    } catch(e) { console.warn('Holidays fetch failed:', e); }
+  }
+
+  document.getElementById('loadingBanner').style.display = 'none';
+  return loaded;
 }
 
 // ── Schedule — hardcoded from START-OF-SELECTION ──────────────────────────────
@@ -1529,7 +1588,6 @@ document.getElementById('addOk').onclick = () => {
     showToast(`Rule added for week ${wk}`);
   }
 
-  saveState();
   document.getElementById('modalAdd').classList.add('hidden');
   renderCalendar();
 };
@@ -1549,7 +1607,6 @@ document.getElementById('delOk').onclick = () => {
     return;
   }
   delete rules[wk];
-  saveState();
   document.getElementById('modalDel').classList.add('hidden');
   showToast(`Rule removed for week ${wk}`);
   renderCalendar();
@@ -1561,7 +1618,6 @@ document.getElementById('fabClr').onclick = () => {
   Object.keys(rules).forEach(k => delete rules[k]);
   schedule = [];
   scheduleActive = false;
-  saveState();
   showToast('All week rules and schedule cleared');
   renderCalendar();
 };
@@ -1716,7 +1772,6 @@ document.getElementById('impOkHol').onclick = () => {
   // Clear existing holidays first — new upload always overwrites
   Object.keys(holidays).forEach(k => delete holidays[k]);
   holParsed.forEach(h => { holidays[h.date] = h.name; });
-  saveState();
   document.getElementById('modalImp').classList.add('hidden');
   showToast(`${holParsed.length} holiday(s) loaded`);
   renderCalendar();
@@ -1727,7 +1782,6 @@ document.getElementById('impOkSched').onclick = () => {
   // New schedule always replaces the previous one entirely
   schedule = schedParsed;
   scheduleActive = true;
-  saveState();
   document.getElementById('modalImp').classList.add('hidden');
   showToast(`${schedParsed.length} schedule segment(s) loaded`);
   renderCalendar();
@@ -2141,6 +2195,51 @@ try {
   }
 } catch(e) {}
 
+// ── GitHub URL config modal ────────────────────────────────────────────────────
+
+document.getElementById('fabGh').onclick = () => {
+  const urls = getGhUrls();
+  document.getElementById('ghHolUrl').value   = urls.holidays || '';
+  document.getElementById('ghSchedUrl').value = urls.schedule || '';
+  document.getElementById('modalGhUrls').classList.remove('hidden');
+};
+
+document.getElementById('ghUrlCancel').onclick = () =>
+  document.getElementById('modalGhUrls').classList.add('hidden');
+
+document.getElementById('modalGhUrls').onclick = function(e) {
+  if (e.target === this) this.classList.add('hidden');
+};
+
+document.getElementById('ghUrlSave').onclick = async () => {
+  const holUrl   = document.getElementById('ghHolUrl').value.trim();
+  const schedUrl = document.getElementById('ghSchedUrl').value.trim();
+
+  // Basic validation — must be raw.githubusercontent.com or empty
+  const validUrl = u => !u || u.startsWith('https://raw.githubusercontent.com/') || u.startsWith('https://');
+  if (!validUrl(holUrl) || !validUrl(schedUrl)) {
+    showToast('Use raw GitHub URLs (raw.githubusercontent.com)');
+    return;
+  }
+
+  setGhUrls({ holidays: holUrl, schedule: schedUrl });
+  document.getElementById('modalGhUrls').classList.add('hidden');
+  showToast('URLs saved — fetching data…');
+
+  // Clear current data and re-fetch
+  Object.keys(holidays).forEach(k => delete holidays[k]);
+  schedule = []; scheduleActive = false;
+  initSchedule(); // restore defaults as fallback
+
+  const loaded = await fetchGitHubData();
+  if (loaded) {
+    renderCalendar();
+    showToast('Data updated from GitHub');
+  } else {
+    showToast('Fetch failed — check URLs');
+  }
+};
+
 // ── Brand settings ───────────────────────────────────────────────────────────
 
 const BRAND_DEFAULTS = {
@@ -2396,15 +2495,14 @@ window.addEventListener('orientationchange', () => {
 }, { passive: true });
 onViewportResize();
 
+// Boot: render immediately with hardcoded defaults, then fetch GitHub data
 initSchedule();
 renderCalendar();
 
-// Override initSchedule() defaults with saved state if it exists.
-// loadState() must run AFTER initSchedule() so the fallback is already
-// in place when there is nothing saved yet.
-if (loadState()) {
-  renderCalendar(); // re-render with restored data
-}
+// Fetch GitHub CSVs asynchronously — updates calendar when ready
+fetchGitHubData().then(loaded => {
+  if (loaded) renderCalendar();
+});
 </script>
 </body>
 </html>
