@@ -1,0 +1,2359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<!--
+  RECOMMENDED SERVER HEADERS (set in nginx/Apache/IIS — not enforced by meta alone):
+
+  Content-Security-Policy:
+    default-src 'self';
+    style-src 'self' 'unsafe-inline';
+    script-src 'self' 'unsafe-inline';
+    img-src 'self' data:;
+    connect-src 'none';
+    font-src 'self'
+
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+-->
+<!-- Fallback CSP via meta (prevents XSS when server headers are unavailable) -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; font-src 'self'">
+<title>Work Calendar</title>
+<style>
+  /*
+   * University of Toronto Brand Standard
+   * Primary:   U of T Blue  #1E3765  (Pantone 655)
+   * Secondary: Teal #007FA3 · Purple #6D247A · Red #DC4633
+   *            Sky #6FC7EA  · Green #00A189  · Gold #F1C500
+   *            Lime #8DBF2E · Magenta #AB1368 · DkTeal #0D534D
+   * Neutrals:  White #FFFFFF · Cool Gray 2 #D0D1C9 · Black #000000
+   * Type:      Trade Gothic Next (mapped to Barlow Condensed / Barlow)
+   */
+
+  /* Self-contained — no external font dependencies (safe for BTP / corporate proxy) */
+
+  @layer base, theme, components;
+
+  @layer base {
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    html {
+      /* Use smallest viewport height so layout never gets cropped by browser chrome */
+      height: -webkit-fill-available;
+    }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      display: flex; flex-direction: column;
+      /* Layer viewport units: svh for safe small viewport, dvh as fallback, 100vh as last resort */
+      min-height: 100vh;
+      min-height: 100svh;
+      height: 100dvh;
+      overflow: hidden;
+      /* Respect notch / home-bar on iOS and Android */
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      padding-left:   env(safe-area-inset-left,   0px);
+      padding-right:  env(safe-area-inset-right,  0px);
+      transition: background .25s, color .25s;
+    }
+  }
+
+  @layer theme {
+    /* ── Light (default) — UofT brand ── */
+    :root {
+      /* Structural */
+      --bg:          #f4f5f8;
+      --surface:     #ffffff;
+      --surface2:    #ecedf2;
+      --glass:       rgba(255,255,255,0.80);
+      --border:      #d0d1c9;   /* Cool Gray 2 */
+      --border-strong: #1E3765;
+      --text:        #000000;
+      --muted:       #5a5f72;
+      --accent:      #1E3765;   /* U of T Blue — primary */
+      --accent2:     #007FA3;   /* Teal — secondary accent */
+      --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+
+      /* SAP → UofT palette — official brand tints
+         Backgrounds = 25% tint of the secondary colour
+         Text        = 100% saturated secondary colour
+         Source: archive.brand.utoronto.ca/guidelines (#Colour)
+
+         c1 = heading/neutral   → U of T Blue   #1E3765  (25% tint)
+         c2 = normal/home       → Cool Gray 2   #D0D1C9  (25% tint)
+         c3 = total/special     → Gold          #F1C500  (25% tint)
+         c4 = key               → Teal          #007FA3  (25% tint)
+         c5 = positive/office   → Green         #00A189  (25% tint)
+         c6 = negative/holiday  → Warm Red      #DC4633  (25% tint)
+         c7 = group/rule        → Purple        #6D247A  (25% tint)
+         c8 = weekend           → Sky blue      #6FC7EA  (25% tint)
+      */
+      --c1:#c8cdd8; --c1t:#1E3765;   /* U of T Blue 25% */
+      --c2:#d0d1c9; --c2t:#4a4f5a;   /* Cool Gray 2 — used as-is (neutral) */
+      --c3:#fdf2a0; --c3t:#5a4400;   /* Gold #F1C500 25% */
+      --c4:#bfe3ee; --c4t:#007FA3;   /* Teal #007FA3 25% */
+      --c5:#bfece6; --c5t:#00A189;   /* Green #00A189 25% */
+      --c6:#DC4633; --c6t:#ffffff;   /* Warm Red #DC4633 exact — Holiday */
+      --c7:#ddc8e4; --c7t:#6D247A;   /* Purple #6D247A 25% */
+      --c8:#6FC7EA; --c8t:#003d5c;   /* Sky #6FC7EA exact — Weekend */
+
+      --radius:    8px;
+      --radius-lg: 14px;
+      /* System fonts — no external dependency, safe for BTP / corporate proxy
+         Windows: Segoe UI  |  macOS/iOS: SF Pro / Helvetica Neue  |  Android: Roboto */
+      --mono: 'Consolas', 'Cascadia Code', 'Courier New', monospace;
+      --sans: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      --cond: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+      --shadow-sm: 0 1px 3px rgba(30,55,101,.10), 0 1px 2px rgba(30,55,101,.06);
+      --shadow-md: 0 4px 14px rgba(30,55,101,.12), 0 2px 4px rgba(30,55,101,.07);
+    }
+
+    /* ── Dark — UofT Blue-anchored dark palette ── */
+    [data-theme="dark"] {
+      --bg:          #080e1e;
+      --surface:     #0f1828;
+      --surface2:    #162035;
+      --glass:       rgba(10,18,36,0.88);
+      --border:      #1e2d48;
+      --border-strong:#4f7be8;
+      --text:        #e8eaf4;
+      --muted:       #5e6e90;
+      --accent:      #4f7be8;   /* Lightened U of T Blue for dark bg */
+      --accent2:     #40b8d8;   /* Teal on dark */
+      --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+
+      /* Dark theme — brand colours at ~15% opacity on deep navy base
+         Text uses lightened brand colour for contrast on dark backgrounds
+      */
+      --c1:#1e2a40; --c1t:#8fa8d8;   /* U of T Blue deep tint */
+      --c2:#2a2b2c; --c2t:#a8a9a3;   /* Cool Gray 2 dark */
+      --c3:#2e2800; --c3t:#e8c000;   /* Gold #F1C500 dark tint */
+      --c4:#002030; --c4t:#40b8d8;   /* Teal #007FA3 dark tint */
+      --c5:#001e1a; --c5t:#30c8b8;   /* Green #00A189 dark tint */
+      --c6:#6e2218; --c6t:#f4a898;   /* Warm Red #DC4633 dark — Holiday */
+      --c7:#1e0828; --c7t:#c060d8;   /* Purple #6D247A dark tint */
+      --c8:#1a3d50; --c8t:#6FC7EA;   /* Sky #6FC7EA dark — Weekend */
+
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.35);
+      --shadow-md: 0 4px 18px rgba(0,0,0,.45);
+    }
+  }
+
+  @layer components {
+
+    /* ── Header ── */
+    .app-header {
+      flex-shrink: 0;
+      background: var(--accent);   /* U of T Blue bar */
+      border-bottom: 3px solid var(--accent2);
+      padding: 8px 14px;
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    /* ── Left logo slot ── */
+    .logo-slot {
+      display: flex; align-items: center;
+      flex-shrink: 0;
+      padding-right: 12px;
+      border-right: 1px solid rgba(255,255,255,0.25);
+      cursor: pointer;
+      position: relative;
+    }
+    .logo-slot:hover .logo-change-hint { opacity: 1; }
+    .logo-img {
+      height: 36px; width: auto;
+      object-fit: contain; display: block;
+    }
+    /* Fallback text signature when no image loaded */
+    .logo-text {
+      display: flex; flex-direction: column;
+      align-items: flex-start; line-height: 1.1;
+    }
+    .logo-text-top {
+      font-family: var(--cond); font-size: 9px; font-weight: 400;
+      color: rgba(255,255,255,0.85); letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .logo-text-bot {
+      font-family: var(--cond); font-size: 14px; font-weight: 700;
+      color: #ffffff; letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    /* Hover overlay hint */
+    .logo-change-hint {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(30,55,101,.6);
+      border-radius: 4px;
+      font-family: var(--cond); font-size: 9px; font-weight: 700;
+      color: #fff; letter-spacing: .1em; text-transform: uppercase;
+      opacity: 0; transition: opacity .15s;
+      pointer-events: none;
+    }
+    /* Reset button — sits top-right of logo slot, above the hover overlay */
+    .logo-reset {
+      position: absolute; top: -6px; right: -6px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: rgba(220,70,51,0.9); /* UofT Red */
+      border: 1.5px solid rgba(255,255,255,0.8);
+      color: #fff; font-size: 9px; font-weight: 700;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      z-index: 10; line-height: 1;
+      transition: transform .12s, background .12s;
+      -webkit-appearance: none;
+    }
+    .logo-reset:hover  { background: #DC4633; transform: scale(1.15); }
+    .logo-reset:active { transform: scale(.9); }
+
+    /* ── Right Defy Gravity mark ── */
+    .defy-gravity {
+      display: flex; align-items: center; gap: 4px;
+      flex-shrink: 0;
+      padding-left: 12px;
+      border-left: 1px solid rgba(255,255,255,0.25);
+    }
+    .dg-caret {
+      font-family: var(--cond); font-size: 22px; font-weight: 700;
+      color: var(--accent2); line-height: .9;
+      position: relative; top: -1px;
+    }
+    .dg-text {
+      display: flex; flex-direction: column;
+      align-items: flex-start; line-height: 1;
+    }
+    .dg-line1, .dg-line2 {
+      font-family: var(--cond); font-size: 9px; font-weight: 700;
+      color: #ffffff; letter-spacing: .2em; text-transform: uppercase;
+    }
+    .nav-btn {
+      background: color-mix(in srgb, white 15%, transparent);
+      border: 1px solid color-mix(in srgb, white 30%, transparent);
+      color: #ffffff;
+      border-radius: var(--radius);
+      padding: 6px 0; font-size: 14px;
+      font-family: var(--sans); font-weight: 500;
+      cursor: pointer; white-space: nowrap;
+      transition: background .15s, transform .1s;
+      -webkit-appearance: none;
+      flex-shrink: 0;
+      width: 36px; text-align: center; /* fixed width — prevents layout shift */
+    }
+    .nav-btn:hover  { background: color-mix(in srgb, white 25%, transparent); }
+    .nav-btn:active { transform: scale(.96); }
+    .month-label {
+      font-family: var(--cond); font-size: 22px; font-weight: 700;
+      color: #ffffff; flex: 1; text-align: center;
+      letter-spacing: .04em; text-transform: uppercase;
+    }
+    .theme-btn {
+      background: color-mix(in srgb, white 15%, transparent);
+      border: 1px solid color-mix(in srgb, white 30%, transparent);
+      border-radius: var(--radius); width: 36px; height: 36px; font-size: 16px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; color: #fff;
+      transition: transform .2s, background .15s;
+      -webkit-appearance: none;
+    }
+    .theme-btn:hover  { background: color-mix(in srgb, white 25%, transparent); }
+    .theme-btn:active { transform: rotate(25deg) scale(.9); }
+
+    /* ── Main ── */
+    .main {
+      flex: 1; min-height: 0;
+      display: flex; flex-direction: column;
+      padding: 6px 6px 0;
+      width: 100%;
+      overflow: hidden;
+      container-type: size; container-name: main;
+    }
+
+    /* ── Column header ── */
+    .col-header {
+      display: grid;
+      grid-template-columns: 36px repeat(7, 1fr);
+      gap: 2px; padding: 0 0 4px; flex-shrink: 0;
+    }
+    .col-header span {
+      font-family: var(--cond); font-size: 12px; font-weight: 700;
+      color: var(--muted); text-align: center; letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .col-header span:nth-child(7),
+    .col-header span:nth-child(8) { color: var(--c8t); }
+
+    /* ── Week grid ── */
+    .calendar-grid {
+      flex: 1; min-height: 0;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .calendar-grid .week-row { flex: 1; min-height: 0; }
+    .week-row {
+      display: grid;
+      grid-template-columns: 36px repeat(7, 1fr);
+      gap: 3px;
+    }
+
+    /* ── Week cell ── */
+    .wk-cell {
+      background: var(--c1);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 3px 2px; border-radius: var(--radius);
+      box-shadow: var(--shadow-sm);
+      border-left: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    }
+    .wk-cell.current-week {
+      border-left-color: var(--accent2);
+    }
+    .wk-num {
+      font-family: var(--mono); font-size: 11px; font-weight: 600;
+      color: var(--c1t); letter-spacing: .02em;
+    }
+    .wk-tag {
+      font-family: var(--cond); font-size: 8px; font-weight: 700;
+      letter-spacing: .08em; margin-top: 2px; padding: 1px 3px;
+      border-radius: 3px; text-transform: uppercase;
+    }
+
+    /* ── Day cell ── */
+    .day-cell {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 2px; border-radius: var(--radius);
+      cursor: default; position: relative;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow .15s, transform .12s;
+    }
+    .day-cell:hover  { box-shadow: var(--shadow-md); transform: scale(1.05); z-index: 2; }
+    .day-cell:active { transform: scale(.96); }
+    .day-cell.is-today {
+      outline: 2px solid var(--accent2);
+      outline-offset: -2px;
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent2) 20%, transparent), var(--shadow-md);
+    }
+    .day-num {
+      font-family: var(--cond); font-size: 16px; font-weight: 700;
+      line-height: 1; letter-spacing: .02em;
+    }
+    .day-adj {
+      font-family: var(--cond); font-size: 13px; font-weight: 400;
+      color: var(--muted);
+    }
+    .day-above {
+      font-family: var(--cond); font-size: 9px; font-weight: 700;
+      letter-spacing: .04em; opacity: .85; text-align: center; line-height: 1;
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; padding: 0 2px; text-transform: uppercase;
+    }
+    .day-sub {
+      font-size: 10px; font-weight: 600; letter-spacing: .02em;
+      margin-top: 1px; line-height: 1; text-align: center;
+    }
+    .today-marker {
+      position: absolute; top: 3px; right: 4px;
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--accent2);
+    }
+
+    /* ── Tooltip — rendered as a fixed positioned div by JS ── */
+    #floatTip {
+      position: fixed; z-index: 300;
+      background: var(--accent);
+      color: #ffffff;
+      font-family: var(--sans); font-size: 11px; font-weight: 500;
+      white-space: nowrap; padding: 5px 10px;
+      border-radius: var(--radius); box-shadow: var(--shadow-md);
+      pointer-events: none;
+      opacity: 0; transition: opacity .15s;
+    }
+    #floatTip.visible { opacity: 1; }
+
+    /* ── Color classes ── */
+    .bg-c1 { background-color: var(--c1); color: var(--c1t); }
+    .bg-c2 { background-color: var(--c2); color: var(--c2t); }
+    .bg-c3 { background-color: var(--c3); color: var(--c3t); }
+    .bg-c4 { background-color: var(--c4); color: var(--c4t); }
+    .bg-c5 { background-color: var(--c5); color: var(--c5t); }
+    .bg-c6 { background-color: var(--c6); color: var(--c6t); }
+    .bg-c7 { background-color: var(--c7); color: var(--c7t); }
+    .bg-c8 { background-color: var(--c8); color: var(--c8t); }
+
+    /* ── Footer pane — mirrors the header ── */
+    .footer-pane {
+      flex-shrink: 0;
+      background: var(--accent);         /* same UofT Blue as header */
+      border-top: 3px solid var(--accent2);  /* teal — mirrors header border-bottom */
+      padding: 6px 14px env(safe-area-inset-bottom, 10px);
+      width: 100%;
+      overflow: visible;
+      position: relative;
+      z-index: 10;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+
+    /* Button row — .ics always visible; admin buttons gated */
+    .footer-btn-row {
+      display: flex; gap: 6px; align-items: center;
+    }
+    .footer-btn-row.admin-only { display: none; }
+    body.admin-mode .footer-btn-row.admin-only { display: flex; }
+
+    /* Buttons inside the footer — white-on-blue style matching nav-btn */
+    .foot-btn {
+      flex: 1;
+      background: color-mix(in srgb, white 15%, transparent);
+      border: 1px solid color-mix(in srgb, white 30%, transparent);
+      color: #ffffff;
+      border-radius: var(--radius);
+      padding: 6px 4px; font-size: 11px;
+      font-family: var(--cond); font-weight: 700;
+      letter-spacing: .06em; text-transform: uppercase;
+      cursor: pointer; text-align: center;
+      transition: background .15s, transform .1s;
+      -webkit-appearance: none;
+      white-space: nowrap;
+    }
+    .foot-btn:hover  { background: color-mix(in srgb, white 25%, transparent); }
+    .foot-btn:active { transform: scale(.95); }
+    .foot-btn.dl  { background: var(--accent2); border-color: var(--accent2); }
+    .foot-btn.add { border-color: color-mix(in srgb, var(--c5t) 70%, white); }
+    .foot-btn.del { border-color: color-mix(in srgb, var(--c6t) 70%, white); }
+
+    /* Legend row — evenly distributed across full width */
+    .legend-row {
+      display: flex; align-items: center;
+      justify-content: space-around;   /* even spacing */
+      padding: 4px 0 2px;
+      border-top: 1px solid rgba(255,255,255,0.2);
+    }
+    .leg-item {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; color: rgba(255,255,255,0.85);
+      font-family: var(--sans);
+      flex: 1; justify-content: center;  /* each item centred in its flex slot */
+    }
+    .leg-swatch {
+      width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0;
+      box-shadow: 0 1px 2px rgba(0,0,0,.25);
+    }
+    .leg-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent2); flex-shrink: 0;
+    }
+
+    /* Status row — schedule + holiday info */
+    .status-row {
+      display: flex; align-items: center; justify-content: center;
+      flex-wrap: wrap;
+      gap: 4px 12px;
+      font-size: 11px; color: rgba(255,255,255,0.7);
+      font-family: var(--sans);
+    }
+    .status-row:empty { display: none; }
+
+    /* Strip items */
+    .strip-item { display: flex; align-items: center; gap: 5px; }
+    .strip-swatch {
+      width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0;
+    }
+    .strip-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--accent2); flex-shrink: 0;
+    }
+    .strip-divider { width: 1px; height: 12px; background: rgba(255,255,255,0.3); }
+    .sched-pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: rgba(255,255,255,0.18); color: #fff;
+      border: 1px solid rgba(255,255,255,0.35);
+      border-radius: 4px; padding: 2px 9px;
+      font-family: var(--cond); font-size: 10px; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
+      cursor: default;
+    }
+    .sched-pill.off {
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.5);
+      border-color: rgba(255,255,255,0.2);
+    }
+
+    /* ── Strip popover — clamp to viewport so it never bleeds off-screen ── */
+    .strip-pop-anchor { position: static; cursor: default; }
+    .strip-pop-anchor .strip-pop {
+      display: none;
+      position: fixed;        /* fixed so it's never clipped by overflow:hidden parents */
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-top: 3px solid var(--accent);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+      padding: 12px 16px;
+      min-width: 200px; max-width: min(290px, 90vw);
+      z-index: 200;
+      pointer-events: none;
+      animation: popIn .15s cubic-bezier(.34,1.3,.64,1);
+    }
+    @keyframes popIn {
+      from { opacity: 0; transform: translateY(6px) scale(.97); }
+      to   { opacity: 1; transform: translateY(0)   scale(1); }
+    }
+    .strip-pop-anchor .strip-pop::after {
+      content: '';
+      position: absolute; top: 100%; left: 20px;
+      border: 6px solid transparent; border-top-color: var(--border);
+    }
+    .strip-pop-anchor .strip-pop::before {
+      content: '';
+      position: absolute; top: calc(100% - 1px); left: 20px;
+      border: 6px solid transparent; border-top-color: var(--surface); z-index: 1;
+    }
+    .strip-pop-anchor:hover .strip-pop,
+    .strip-pop-anchor.pop-show .strip-pop { display: block; }
+    .pop-title {
+      font-family: var(--cond); font-size: 10px; font-weight: 700;
+      color: var(--accent); letter-spacing: .12em; text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .pop-row {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 11px; color: var(--text); padding: 3px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .pop-row:last-child { border-bottom: none; }
+    .pop-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+    .pop-wk  { font-family: var(--mono); font-size: 10px; color: var(--muted); min-width: 44px; }
+    .pop-label { flex: 1; font-family: var(--sans); }
+    .pop-empty { font-size: 11px; color: var(--muted); font-style: italic; }
+
+    /* Admin lock toggle button — sits in the header */
+    .admin-btn {
+      background: color-mix(in srgb, white 15%, transparent);
+      border: 1px solid color-mix(in srgb, white 30%, transparent);
+      border-radius: var(--radius); width: 36px; height: 36px; font-size: 15px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; color: rgba(255,255,255,0.7);
+      transition: color .15s, background .15s, transform .1s;
+      -webkit-appearance: none;
+    }
+    .admin-btn:hover  { background: color-mix(in srgb, white 25%, transparent); color: #fff; }
+    .admin-btn:active { transform: scale(.9); }
+    body.admin-mode .admin-btn { color: var(--accent2); }
+
+    /* Admin mode indicator bar */
+    body.admin-mode .app-header {
+      border-bottom-color: var(--accent2);
+    }
+    .fab {
+      flex: 1; max-width: 120px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: var(--radius);
+      padding: 9px 6px; font-size: 11px;
+      font-family: var(--cond); font-weight: 700;
+      letter-spacing: .06em; text-transform: uppercase;
+      cursor: pointer; text-align: center;
+      box-shadow: var(--shadow-sm);
+      transition: background .15s, box-shadow .15s, transform .1s, color .15s;
+      -webkit-appearance: none;
+    }
+    .fab:hover  { box-shadow: var(--shadow-md); }
+    .fab:active { transform: scale(.95); box-shadow: none; }
+    .fab.add { background: color-mix(in srgb, var(--c5) 60%, var(--surface)); color: var(--c5t); border-color: var(--c5t); }
+    .fab.del { background: color-mix(in srgb, var(--c6) 60%, var(--surface)); color: var(--c6t); border-color: var(--c6t); }
+    .fab.imp { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); border-color: var(--accent); }
+    .fab.dl  { background: color-mix(in srgb, var(--c7) 60%, var(--surface)); color: var(--c7t); border-color: var(--c7t); }
+    .fab.clr { background: var(--surface2); color: var(--muted); border-color: var(--border); }
+
+    /* ── Checkbox ── */
+    .check-row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; color: var(--text); cursor: pointer;
+    }
+    .check-row input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,.55);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: flex; align-items: flex-end; justify-content: center;
+    }
+    .modal-overlay.hidden { display: none; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-top: 4px solid var(--accent);
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+      width: 100%; max-width: 500px;
+      padding: 24px 20px 36px;
+      box-shadow: 0 -8px 40px rgba(30,55,101,.15);
+      animation: slideUp .22s cubic-bezier(.34,1.3,.64,1);
+    }
+    @keyframes slideUp { from { transform: translateY(60px); opacity: 0; } }
+    .modal-title {
+      font-family: var(--cond); font-size: 14px; font-weight: 700;
+      color: var(--accent); letter-spacing: .1em; text-transform: uppercase;
+      margin-bottom: 20px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .modal-title::before {
+      content: '^'; font-size: 18px; color: var(--accent2); line-height: 1;
+    }
+    .field-group { margin-bottom: 14px; }
+    .field-label {
+      font-family: var(--cond); font-size: 11px; font-weight: 700;
+      color: var(--muted); margin-bottom: 5px; letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .field-input {
+      width: 100%; background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); border-radius: var(--radius); padding: 10px 12px;
+      font-family: var(--mono); font-size: 14px;
+      -webkit-appearance: none; outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .field-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    .field-select {
+      width: 100%; background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); border-radius: var(--radius); padding: 10px 12px;
+      font-family: var(--sans); font-size: 14px;
+      -webkit-appearance: none; outline: none; cursor: pointer;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .field-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .field-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .modal-btns { display: flex; gap: 10px; margin-top: 20px; }
+    .btn-cancel {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border);
+      color: var(--muted); border-radius: var(--radius); padding: 12px;
+      font-size: 13px; font-family: var(--cond); font-weight: 700;
+      letter-spacing: .06em; text-transform: uppercase;
+      cursor: pointer; transition: background .15s; -webkit-appearance: none;
+    }
+    .btn-cancel:hover { background: var(--border); }
+    .btn-ok {
+      flex: 2; background: var(--accent); border: none;
+      color: #fff; border-radius: var(--radius); padding: 12px;
+      font-size: 13px; font-family: var(--cond); font-weight: 700;
+      letter-spacing: .06em; text-transform: uppercase;
+      cursor: pointer;
+      box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent);
+      transition: opacity .15s, transform .1s; -webkit-appearance: none;
+    }
+    .btn-ok:hover  { opacity: .88; }
+    .btn-ok:active { transform: scale(.97); }
+
+    /* ── Import extras ── */
+    .imp-tabs {
+      display: flex; gap: 4px; margin-bottom: 16px;
+      background: var(--surface2); border-radius: var(--radius); padding: 3px;
+    }
+    .imp-tab {
+      flex: 1; background: transparent; border: none;
+      color: var(--muted); border-radius: 6px;
+      padding: 8px 6px;
+      font-family: var(--cond); font-size: 12px; font-weight: 700;
+      letter-spacing: .06em; text-transform: uppercase;
+      cursor: pointer; transition: background .15s, color .15s, box-shadow .15s;
+      -webkit-appearance: none;
+    }
+    .imp-tab.active { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
+    .imp-hint {
+      font-size: 12px; color: var(--muted); line-height: 1.7;
+      background: var(--surface2); border-radius: var(--radius);
+      padding: 10px 12px;
+      border-left: 3px solid var(--accent2);
+    }
+    .imp-hint code { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+    .file-drop {
+      display: flex; align-items: center; justify-content: center;
+      border: 1.5px dashed var(--border); border-radius: var(--radius);
+      padding: 20px; cursor: pointer; text-align: center;
+      color: var(--muted); font-size: 13px;
+      transition: border-color .15s, background .15s, box-shadow .15s;
+    }
+    .file-drop:hover, .file-drop.has-file {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+      color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    .imp-preview {
+      max-height: 100px; overflow-y: auto;
+      font-family: var(--mono); font-size: 11px; color: var(--muted);
+      margin-top: 8px; line-height: 1.6;
+    }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
+      background: var(--accent);
+      color: #ffffff;
+      border-radius: 4px; padding: 10px 20px;
+      font-family: var(--cond); font-size: 13px; font-weight: 700;
+      letter-spacing: .06em; text-transform: uppercase;
+      z-index: 300; white-space: nowrap;
+      box-shadow: var(--shadow-md);
+      animation: fadeIn .2s ease; pointer-events: none;
+    }
+    .toast.hidden { display: none; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } }
+
+    /* ── Empty ── */
+    .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+
+    /* ── Responsive ── */
+    @media (max-width: 380px) {
+      .day-num { font-size: 13px; }
+      .col-header span { font-size: 10px; }
+      .wk-num { font-size: 10px; }
+      .month-label { font-size: 18px; }
+    }
+
+    /* Landscape phone — compress header and footer to reclaim vertical space */
+    @media (orientation: landscape) and (max-height: 500px) {
+      .app-header  { padding: 4px 10px; }
+      .logo-text-bot { font-size: 11px; }
+      .logo-text-top { font-size: 7px; }
+      .month-label { font-size: 14px; }
+      .theme-btn, .admin-btn { width: 28px; height: 28px; font-size: 13px; }
+      .nav-btn { width: 28px; font-size: 12px; }
+      .footer-pane { padding: 3px 8px env(safe-area-inset-bottom, 4px); gap: 2px; }
+      .legend-row  { padding: 2px 0 1px; }
+      .leg-item    { font-size: 10px; }
+      .foot-btn    { padding: 4px 3px; font-size: 10px; }
+      .footer-btn-row { gap: 4px; }
+    }
+
+    @container main (max-height: 420px) {
+      .day-num { font-size: 12px; }
+      .wk-num  { font-size: 9px; }
+      .day-sub { display: none; }
+    }
+  }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+
+  <!-- Left: org name (click to upload logo image when admin) -->
+  <div class="logo-slot" id="logoSlot" title="Click to change logo">
+    <img class="logo-img" id="logoImg" src="" alt="Logo" style="display:none">
+    <div class="logo-text" id="logoText">
+      <span class="logo-text-top" id="orgTop">Work</span>
+      <span class="logo-text-bot" id="orgBot">Calendar</span>
+    </div>
+    <div class="logo-change-hint">Change logo</div>
+    <button class="logo-reset" id="logoReset" title="Reset to default" style="display:none">✕</button>
+  </div>
+  <input type="file" id="logoFile" accept="image/*" style="display:none">
+
+  <!-- Centre: nav + month -->
+  <button class="nav-btn" id="btnPrev">‹</button>
+  <span class="month-label" id="monthLabel"></span>
+  <button class="nav-btn" id="btnNext">›</button>
+  <button class="theme-btn" id="btnTheme" title="Toggle theme">☀️</button>
+  <button class="admin-btn" id="btnAdmin" title="Admin mode">🔒</button>
+  <!-- Settings button — admin mode only -->
+  <button class="admin-btn" id="btnSettings" title="Brand settings" style="display:none">⚙️</button>
+
+  <!-- Right: tagline (editable by admin) -->
+  <div class="defy-gravity" id="taglineBlock">
+    <span class="dg-caret">^</span>
+    <div class="dg-text">
+      <span class="dg-line1" id="tagLine1">My</span>
+      <span class="dg-line2" id="tagLine2">Team</span>
+    </div>
+  </div>
+
+</header>
+
+<main class="main">
+  <div class="col-header">
+    <span>WK</span>
+    <span>MON</span><span>TUE</span><span>WED</span>
+    <span>THU</span><span>FRI</span><span>SAT</span><span>SUN</span>
+  </div>
+  <div class="calendar-grid" id="calGrid"></div>
+</main>
+
+<!-- Footer pane — buttons + legend, styled like the header -->
+<footer class="footer-pane" id="footerPane">
+
+  <!-- Button row: .ics always visible -->
+  <div class="footer-btn-row">
+    <button class="foot-btn dl" id="fabDl">↓ Download .ics</button>
+  </div>
+
+  <!-- Admin button row: gated -->
+  <div class="footer-btn-row admin-only">
+    <button class="foot-btn add" id="fabAdd">+ Add Rule</button>
+    <button class="foot-btn del" id="fabDel">− Remove</button>
+    <button class="foot-btn" id="fabImp">↑ Import</button>
+    <button class="foot-btn" id="fabClr">Clear All</button>
+  </div>
+
+  <!-- Legend row: evenly spaced -->
+  <div class="legend-row">
+    <div class="leg-item"><div class="leg-swatch" style="background:var(--c5)"></div>Office</div>
+    <div class="leg-item"><div class="leg-swatch" style="background:var(--c2)"></div>Home</div>
+    <div class="leg-item"><div class="leg-swatch" style="background:var(--c8)"></div>Weekend</div>
+    <div class="leg-item"><div class="leg-swatch" style="background:var(--c6)"></div>Holiday ★</div>
+    <div class="leg-item" id="legToday" style="cursor:pointer" title="Go to today">
+      <div class="leg-dot"></div>Today
+    </div>
+  </div>
+
+  <!-- Status row: schedule + holiday info with hover popovers -->
+  <div class="status-row">
+    <div class="strip-item strip-pop-anchor" id="stripSched">
+      <span class="sched-pill off">No schedule</span>
+      <div class="strip-pop" id="schedPop"></div>
+    </div>
+    <div class="strip-divider" id="statusDivider" style="display:none"></div>
+    <div class="strip-item strip-pop-anchor" id="stripHol" style="display:none">
+      <div class="strip-swatch" style="background:#DC4633"></div>
+      <strong id="stripHolText" style="color:rgba(255,255,255,0.85); font-size:11px"></strong>
+      <div class="strip-pop" id="holPop"></div>
+    </div>
+  </div>
+
+</footer>
+
+<!-- Add Rule Modal -->
+<div class="modal-overlay hidden" id="modalAdd">
+  <div class="modal">
+    <div class="modal-title">Add Week Rule</div>
+    <div class="field-group">
+      <div class="field-label">Start week (YYYYWW)</div>
+      <input class="field-input" id="addWeek" maxlength="6" placeholder="e.g. 202617" inputmode="numeric">
+    </div>
+    <div class="field-group">
+      <div class="field-label">Rule type</div>
+      <select class="field-select" id="addType">
+        <option value="F">F — Full Work Week</option>
+        <option value="P">P — Partial Week</option>
+        <option value="G">G — Holiday / No Work</option>
+        <option value="S">S — Special Week</option>
+        <option value="D">D — Day Pattern (alternating)</option>
+      </select>
+    </div>
+    <div id="patternFields" style="display:none">
+      <div class="field-group">
+        <div class="field-label">Slot A — weeks 1,3,5… (Mon–Sun, X=work space=off)</div>
+        <input class="field-input" id="slotA" maxlength="7" placeholder="XXX    " style="letter-spacing:.2em">
+        <div class="field-hint">e.g. &nbsp;XXX&nbsp;&nbsp;&nbsp; = Mon+Tue+Wed &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;XX = Thu+Fri</div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">Slot B — weeks 2,4,6…</div>
+        <input class="field-input" id="slotB" maxlength="7" placeholder="   XX  " style="letter-spacing:.2em">
+      </div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn-cancel" id="addCancel">Cancel</button>
+      <button class="btn-ok" id="addOk">Add Rule</button>
+    </div>
+  </div>
+</div>
+
+<!-- Remove Rule Modal -->
+<div class="modal-overlay hidden" id="modalDel">
+  <div class="modal">
+    <div class="modal-title">Remove Week Rule</div>
+    <div class="field-group">
+      <div class="field-label">Week number (YYYYWW)</div>
+      <input class="field-input" id="delWeek" maxlength="6" placeholder="e.g. 202617" inputmode="numeric">
+    </div>
+    <div class="modal-btns">
+      <button class="btn-cancel" id="delCancel">Cancel</button>
+      <button class="btn-ok" id="delOk">Remove</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal-overlay hidden" id="modalImp">
+  <div class="modal">
+    <div class="modal-title">Import Data</div>
+
+    <!-- Tab switcher -->
+    <div class="imp-tabs">
+      <button class="imp-tab active" id="tabHol" onclick="switchTab('hol')">Holiday Calendar</button>
+      <button class="imp-tab" id="tabSched" onclick="switchTab('sched')">Schedule</button>
+    </div>
+
+    <!-- Holiday tab -->
+    <div id="panelHol">
+      <p class="imp-hint">Upload a CSV with one holiday per line:<br>
+        <code>YYYYMMDD,Holiday Name</code><br>
+        e.g. <code>20260101,New Year's Day</code>
+      </p>
+      <div class="field-group" style="margin-top:12px">
+        <label class="file-drop" id="holDrop">
+          <span id="holDropLabel">Tap to choose CSV file</span>
+          <input type="file" id="holFile" accept=".csv,.txt" style="display:none">
+        </label>
+      </div>
+      <div id="holPreview" class="imp-preview"></div>
+      <div class="modal-btns">
+        <button class="btn-cancel" id="impCancelHol">Cancel</button>
+        <button class="btn-ok" id="impOkHol">Load Holidays</button>
+      </div>
+    </div>
+
+    <!-- Schedule tab -->
+    <div id="panelSched" style="display:none">
+      <p class="imp-hint">Upload a CSV defining schedule segments:<br>
+        <code>week_from,week_to,type,slot_a,slot_b</code><br>
+        type: <code>A</code>=alternating&nbsp; <code>F</code>=fixed<br>
+        slots: 7-char mask e.g. <code>XXX    </code> (X=office space=home)<br>
+        week_to <code>999999</code> = open-ended
+      </p>
+      <div class="field-group" style="margin-top:12px">
+        <label class="file-drop" id="schedDrop">
+          <span id="schedDropLabel">Tap to choose CSV file</span>
+          <input type="file" id="schedFile" accept=".csv,.txt" style="display:none">
+        </label>
+      </div>
+      <div id="schedPreview" class="imp-preview"></div>
+      <div class="modal-btns">
+        <button class="btn-cancel" id="impCancelSched">Cancel</button>
+        <button class="btn-ok" id="impOkSched">Load Schedule</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Download ICS Modal -->
+<div class="modal-overlay hidden" id="modalDl">
+  <div class="modal">
+    <div class="modal-title">Download Calendar (.ics)</div>
+
+    <div class="field-group">
+      <div class="field-label">Range</div>
+      <select class="field-select" id="dlRange" onchange="onDlRangeChange()">
+        <option value="month">This month only</option>
+        <option value="schedule">Full schedule range</option>
+        <option value="custom">Custom range</option>
+      </select>
+    </div>
+
+    <div id="dlCustomFields" style="display:none">
+      <div style="display:flex;gap:10px">
+        <div class="field-group" style="flex:1">
+          <div class="field-label">From (YYYYMM)</div>
+          <input class="field-input" id="dlFrom" maxlength="6" placeholder="e.g. 202601" inputmode="numeric">
+        </div>
+        <div class="field-group" style="flex:1">
+          <div class="field-label">To (YYYYMM)</div>
+          <input class="field-input" id="dlTo"   maxlength="6" placeholder="e.g. 202612" inputmode="numeric">
+        </div>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <div class="field-label">What to include</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+        <label class="check-row"><input type="checkbox" id="dlOffice"  checked> Office</label>
+        <label class="check-row"><input type="checkbox" id="dlHome"    checked> Home</label>
+        <label class="check-row"><input type="checkbox" id="dlHoliday" checked> Public holidays</label>
+        <label class="check-row"><input type="checkbox" id="dlWeekend">          Weekends</label>
+      </div>
+    </div>
+
+    <div id="dlSummaryText" class="imp-hint" style="margin-top:4px"></div>
+
+    <div class="modal-btns">
+      <button class="btn-cancel" id="dlCancel">Cancel</button>
+      <button class="btn-ok"     id="dlOk">Download</button>
+    </div>
+  </div>
+</div>
+
+<!-- Brand Settings Modal (admin only) -->
+<div class="modal-overlay hidden" id="modalBrand">
+  <div class="modal">
+    <div class="modal-title">Brand Settings</div>
+
+    <div class="field-group">
+      <div class="field-label">Organisation name — line 1 (small text)</div>
+      <input class="field-input" id="brandOrgTop" maxlength="30" placeholder="e.g. University of">
+    </div>
+    <div class="field-group">
+      <div class="field-label">Organisation name — line 2 (large text)</div>
+      <input class="field-input" id="brandOrgBot" maxlength="30" placeholder="e.g. Toronto">
+    </div>
+    <div class="field-group">
+      <div class="field-label">Right tagline — line 1</div>
+      <input class="field-input" id="brandTag1" maxlength="20" placeholder="e.g. My">
+    </div>
+    <div class="field-group">
+      <div class="field-label">Right tagline — line 2</div>
+      <input class="field-input" id="brandTag2" maxlength="20" placeholder="e.g. Team">
+      <div class="field-hint">Leave blank to hide the tagline block entirely.</div>
+    </div>
+
+    <div class="modal-btns">
+      <button class="btn-cancel" id="brandCancel">Cancel</button>
+      <button class="btn-ok"     id="brandSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Admin PIN Modal -->
+<div class="modal-overlay hidden" id="modalPin">
+  <div class="modal">
+    <div class="modal-title" id="pinModalTitle">Admin Access</div>
+    <div class="field-group">
+      <div class="field-label" id="pinFieldLabel">Enter PIN</div>
+      <input class="field-input" id="pinInput" type="password"
+             maxlength="8" inputmode="numeric" placeholder="••••"
+             style="letter-spacing:.4em; font-size:22px; text-align:center">
+      <div class="field-hint" id="pinHint"></div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn-cancel" id="pinCancel">Cancel</button>
+      <button class="btn-ok"     id="pinOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Floating tooltip (holiday name) — JS-positioned, never clips off screen -->
+<div id="floatTip"></div>
+
+<!-- Toast -->
+<div class="toast hidden" id="toast"></div>
+
+<script>
+// ── Utilities ────────────────────────────────────────────────────────────────
+
+function pad2(n) { return String(n).padStart(2,'0'); }
+
+function datumStr(y,m,d) { return `${y}${pad2(m)}${pad2(d)}`; }
+
+// Returns Date for YYYYMMDD string
+function parseDatum(s) {
+  return new Date(+s.slice(0,4), +s.slice(4,6)-1, +s.slice(6,8));
+}
+
+// Returns YYYYMMDD string for Date
+function toDatum(d) {
+  return `${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}`;
+}
+
+// ISO week key YYYYWW (mimics DATE_GET_WEEK)
+function weekKey(datum) {
+  const d = parseDatum(datum);
+  const tmp = new Date(d.getTime());
+  tmp.setHours(0,0,0,0);
+  tmp.setDate(tmp.getDate()+3-(tmp.getDay()+6)%7);
+  const jan4 = new Date(tmp.getFullYear(),0,4);
+  const ww = 1 + Math.round(((tmp-jan4)/86400000 - 3 + (jan4.getDay()+6)%7)/7);
+  const yr = tmp.getFullYear();
+  return `${yr}${pad2(ww)}`;
+}
+
+// Day of week: 1=Mon … 7=Sun
+function dow(datum) {
+  const d = parseDatum(datum);
+  return ((d.getDay()+6)%7)+1;
+}
+
+// Monday of the ISO week containing datum
+function mondayOf(datum) {
+  const d = parseDatum(datum);
+  const offset = ((d.getDay()+6)%7);
+  d.setDate(d.getDate()-offset);
+  return toDatum(d);
+}
+
+// First/last day of month
+function firstDay(y,m) { return datumStr(y,m,1); }
+function lastDay(y,m) {
+  return toDatum(new Date(y,m,0));
+}
+
+// Today as YYYYMMDD
+const TODAY = toDatum(new Date());
+
+// ── Colour helpers ────────────────────────────────────────────────────────────
+
+const colorClass = {
+  0:'bg-c2', 1:'bg-c1', 2:'bg-c2', 3:'bg-c3',
+  4:'bg-c4', 5:'bg-c5', 6:'bg-c6', 7:'bg-c7', 8:'bg-c8'
+};
+const colorDot = {
+  5:'var(--c5t)', 6:'var(--c6t)', 3:'var(--c3t)',
+  7:'var(--c7t)', 2:'var(--c2t)', 8:'var(--c8t)'
+};
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
+let gMonth = +TODAY.slice(4,6);
+let gYear  = +TODAY.slice(0,4);
+
+// Week rules: { weekNum: { label, color } }
+const rules = {};
+
+// Schedule segments (mirroring tt_schedule)
+let schedule = [];
+let scheduleActive = false;
+
+// Public holidays: { datum: description } — loaded from user input or left empty
+const holidays = {};
+
+// ── Schedule — hardcoded from START-OF-SELECTION ──────────────────────────────
+
+function initSchedule() {
+  const C = { WORK: 5, OFF: 0 };
+  const mkSlot = (days, wc=C.WORK, oc=C.OFF) => ({ days, work_color:wc, off_color:oc });
+  schedule = [
+    { week_from:'202442', week_to:'202614', seg_type:'A',
+      slot_a: mkSlot(' XXX   '), slot_b: mkSlot(' XX    ') },
+    { week_from:'202615', week_to:'202615', seg_type:'F',
+      slot_a: mkSlot('XXXXX  '), slot_b: mkSlot('XXXXX  ') },
+    { week_from:'202616', week_to:'999999', seg_type:'A',
+      slot_a: mkSlot('   XX  '), slot_b: mkSlot('XXX    ') },
+  ];
+  scheduleActive = true;
+  // Named rule for week 202615
+  rules['202615'] = { label:'Full Work Week', color:5 };
+}
+
+// ── Week-to-absolute offset (same formula as lcl_rules=>week_to_abs) ──────────
+
+function weekToAbs(wk) {
+  return (+wk.slice(0,4))*53 + (+wk.slice(4,6));
+}
+
+// ── Schedule lookups ─────────────────────────────────────────────────────────
+
+function scheduleApplies(wk) {
+  if (!scheduleActive) return false;
+  return schedule.some(s => wk >= s.week_from && wk <= s.week_to);
+}
+
+function getDaySlot(wk) {
+  for (const seg of schedule) {
+    if (wk >= seg.week_from && wk <= seg.week_to) {
+      if (seg.seg_type === 'F') return seg.slot_a;
+      const offset = weekToAbs(wk) - weekToAbs(seg.week_from);
+      return offset % 2 === 0 ? seg.slot_a : seg.slot_b;
+    }
+  }
+  return null;
+}
+
+// ── Security helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Escape HTML special characters before inserting user-supplied text into
+ * innerHTML.  Prevents XSS from malicious CSV content or rule labels.
+ */
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Maximum CSV file size accepted (500 KB).  Larger files are rejected to
+ * prevent memory exhaustion from a maliciously crafted upload.
+ */
+const MAX_FILE_BYTES = 512 * 1024;
+
+/**
+ * Maximum rows parsed from any CSV (prevents DoS via huge files even if the
+ * size check is somehow bypassed).
+ */
+const MAX_CSV_ROWS = 1000;
+
+// ── Calendar rendering ────────────────────────────────────────────────────────
+
+function monthName(m) {
+  return ['','January','February','March','April','May','June',
+          'July','August','September','October','November','December'][m];
+}
+
+function renderCalendar() {
+  document.getElementById('monthLabel').textContent =
+    `${monthName(gMonth)} ${gYear}`;
+
+  const grid = document.getElementById('calGrid');
+  grid.innerHTML = '';
+
+  const first = firstDay(gYear, gMonth);
+  const last  = lastDay(gYear, gMonth);
+  let weekMon = mondayOf(first);
+
+  while (weekMon <= last) {
+    grid.appendChild(buildWeekRow(weekMon, gMonth));
+    // advance 7 days
+    const d = parseDatum(weekMon);
+    d.setDate(d.getDate()+7);
+    weekMon = toDatum(d);
+  }
+
+  renderRules();
+  renderSchedStatus();
+  renderHolidays();
+}
+
+function buildWeekRow(mondayDatum, targetMonth) {
+  const wk    = weekKey(mondayDatum);
+  const rule  = rules[wk];
+  const schedOn = scheduleApplies(wk);
+  const slot  = schedOn ? getDaySlot(wk) : null;
+
+  // Week number cell colour
+  let baseColor = 1;
+  if (schedOn && slot) baseColor = slot.work_color;
+  else if (rule) baseColor = rule.color;
+
+  const row = document.createElement('div');
+  row.className = 'week-row';
+
+  // Week cell
+  const wkCell = document.createElement('div');
+  const isCurrentWeek = wk === weekKey(TODAY);
+  wkCell.className = `wk-cell ${colorClass[baseColor]||'bg-c1'}${isCurrentWeek ? ' current-week' : ''}`;
+  const wkNum = document.createElement('span');
+  wkNum.className = 'wk-num';
+  wkNum.textContent = `W${wk.slice(4)}`;
+  wkCell.appendChild(wkNum);
+  if (rule) {
+    const tag = document.createElement('span');
+    tag.className = 'wk-tag';
+    tag.style.background = colorDot[rule.color]||'var(--muted)';
+    tag.style.color = 'var(--bg)';
+    const short = { 'Full Work Week':'FULL','Partial Week':'PART',
+                    'Holiday Week':'HOL','Special Week':'SPEC' };
+    tag.textContent = short[rule.label] || rule.label.slice(0,4).toUpperCase();
+    wkCell.appendChild(tag);
+  }
+  row.appendChild(wkCell);
+
+  // 7 day cells
+  let d = parseDatum(mondayDatum);
+  for (let i=1; i<=7; i++) {
+    const datum = toDatum(d);
+    const dayNum = d.getDate();
+    const dayMonth = d.getMonth()+1;
+    const isAdj = dayMonth !== targetMonth;
+    const isToday = datum === TODAY;
+    const isHoliday = !!holidays[datum];
+    const isWeekend = i >= 6;
+
+    // Cell colour — same priority order as ABAP
+    let cellColor = 1; // normal
+    if (schedOn && slot && !isWeekend) {
+      const maskChar = slot.days[i-1];
+      cellColor = (maskChar === 'X') ? slot.work_color : slot.off_color;
+    } else if (isWeekend) {
+      cellColor = 8; // amber — weekends
+    } else if (rule) {
+      cellColor = rule.color;
+    }
+    if (isHoliday) cellColor = 6; // red — public holidays (overrides weekend)
+
+    const cell = document.createElement('div');
+    cell.className = `day-cell ${colorClass[cellColor]||'bg-c1'}${isToday ? ' is-today' : ''}`;
+    if (isHoliday && holidays[datum]) {
+      cell.setAttribute('data-tooltip', holidays[datum]);
+    }
+    if (isToday) {
+      const dot = document.createElement('div');
+      dot.className = 'today-marker';
+      cell.appendChild(dot);
+    }
+
+    // Holiday name is shown via tooltip (data-tooltip) only —
+    // the cell is too narrow for readable text.
+    // A small indicator dot below the number signals a holiday visually.
+
+    const numEl = document.createElement('span');
+    if (isAdj) {
+      numEl.className = 'day-adj';
+      numEl.textContent = `(${dayNum})`;
+    } else {
+      numEl.className = 'day-num';
+      numEl.textContent = String(dayNum).padStart(2,' ');
+    }
+    cell.appendChild(numEl);
+
+    // Dot BELOW the day number — holiday star or office dot
+    if (!isAdj) {
+      if (isHoliday) {
+        const sub = document.createElement('span');
+        sub.className = 'day-sub';
+        sub.style.color = 'var(--c6t)';
+        sub.textContent = '★';
+        cell.appendChild(sub);
+      } else if (schedOn && slot && !isWeekend) {
+        const maskChar = slot.days[i-1];
+        if (maskChar === 'X') {
+          const sub = document.createElement('span');
+          sub.className = 'day-sub';
+          sub.style.color = 'var(--c5t)';
+          sub.textContent = '●';
+          cell.appendChild(sub);
+        }
+      }
+    }
+
+    row.appendChild(cell);
+    d.setDate(d.getDate()+1);
+  }
+  return row;
+}
+
+function renderRules() {
+  // Rules are shown as wk-tag badges on each week cell — no separate list panel.
+}
+
+function renderSchedStatus() {
+  const el  = document.getElementById('stripSched');
+  const pop = document.getElementById('schedPop');
+
+  // Update the pill text safely via textContent
+  let pill = el.querySelector('.sched-pill');
+  if (!pill) {
+    pill = document.createElement('span');
+    el.insertBefore(pill, pop);
+  }
+  if (scheduleActive) {
+    pill.className   = 'sched-pill';
+    pill.textContent = 'Schedule active';
+  } else {
+    pill.className   = 'sched-pill off';
+    pill.textContent = 'No schedule';
+  }
+
+  // Build popover using safe DOM — no innerHTML with user data
+  pop.innerHTML = ''; // safe: clearing only, no user data
+
+  if (scheduleActive) {
+    // Segments heading
+    const h1 = document.createElement('div');
+    h1.className   = 'pop-title';
+    h1.textContent = 'Schedule Segments';
+    pop.appendChild(h1);
+
+    if (schedule.length === 0) {
+      const empty = document.createElement('div');
+      empty.className   = 'pop-empty';
+      empty.textContent = 'No segments defined.';
+      pop.appendChild(empty);
+    } else {
+      schedule.forEach(s => {
+        const to = s.week_to === '999999' ? '→ open' : `→ ${s.week_to}`;
+        const type = s.seg_type === 'A' ? 'Alt' : 'Fixed';
+        const row = document.createElement('div');
+        row.className = 'pop-row';
+        const wkEl = document.createElement('span');
+        wkEl.className   = 'pop-wk';
+        wkEl.textContent = s.week_from;
+        const lbEl = document.createElement('span');
+        lbEl.className   = 'pop-label';
+        lbEl.textContent = `${to} · ${type}`;
+        row.appendChild(wkEl);
+        row.appendChild(lbEl);
+        pop.appendChild(row);
+      });
+    }
+
+    // Week rules heading (if any)
+    const ruleKeys = Object.keys(rules).sort();
+    if (ruleKeys.length > 0) {
+      const h2 = document.createElement('div');
+      h2.className = 'pop-title';
+      h2.style.marginTop = '10px';
+      h2.textContent = 'Week Rules';
+      pop.appendChild(h2);
+
+      ruleKeys.forEach(wk => {
+        const r = rules[wk];
+        const row = document.createElement('div');
+        row.className = 'pop-row';
+        const dot = document.createElement('div');
+        dot.className = 'pop-dot';
+        dot.style.background = `var(--c${r.color})`;
+        const wkEl = document.createElement('span');
+        wkEl.className   = 'pop-wk';
+        wkEl.textContent = wk;
+        const lbEl = document.createElement('span');
+        lbEl.className   = 'pop-label';
+        lbEl.textContent = r.label;  // comes from a fixed map — safe, but textContent anyway
+        row.appendChild(dot);
+        row.appendChild(wkEl);
+        row.appendChild(lbEl);
+        pop.appendChild(row);
+      });
+    }
+
+  } else {
+    const empty = document.createElement('div');
+    empty.className = 'pop-empty';
+    empty.textContent = 'No schedule loaded. Use + Add Rule → D.';
+    pop.appendChild(empty);
+  }
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+
+document.getElementById('btnPrev').onclick = () => {
+  gMonth--;
+  if (gMonth < 1) { gMonth = 12; gYear--; }
+  renderCalendar();
+};
+document.getElementById('btnNext').onclick = () => {
+  gMonth++;
+  if (gMonth > 12) { gMonth = 1; gYear++; }
+  renderCalendar();
+};
+// ── Toast ─────────────────────────────────────────────────────────────────────
+
+// Today legend item in footer navigates to current month
+document.getElementById('legToday').onclick = () => {
+  gMonth = +TODAY.slice(4,6);
+  gYear  = +TODAY.slice(0,4);
+  renderCalendar();
+};
+
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), 2400);
+}
+
+// ── Modals ────────────────────────────────────────────────────────────────────
+
+// Add Rule
+document.getElementById('fabAdd').onclick = () => {
+  const defWk = weekKey(firstDay(gYear, gMonth));
+  document.getElementById('addWeek').value = defWk;
+  document.getElementById('addType').value = 'F';
+  document.getElementById('patternFields').style.display = 'none';
+  document.getElementById('slotA').value = 'XXX    ';
+  document.getElementById('slotB').value = '   XX  ';
+  document.getElementById('modalAdd').classList.remove('hidden');
+};
+document.getElementById('addType').onchange = function() {
+  document.getElementById('patternFields').style.display =
+    this.value === 'D' ? 'block' : 'none';
+};
+document.getElementById('addCancel').onclick = () =>
+  document.getElementById('modalAdd').classList.add('hidden');
+
+document.getElementById('addOk').onclick = () => {
+  const wk = document.getElementById('addWeek').value.trim();
+  const type = document.getElementById('addType').value;
+
+  if (wk.length !== 6 || !/^\d{6}$/.test(wk)) {
+    showToast('Week must be 6 digits YYYYWW');
+    return;
+  }
+
+  if (type === 'D') {
+    const maskA = document.getElementById('slotA').value.padEnd(7,' ').slice(0,7).toUpperCase();
+    const maskB = document.getElementById('slotB').value.padEnd(7,' ').slice(0,7).toUpperCase();
+    // Clear existing schedule and set a new open-ended alternating segment
+    schedule = [{
+      week_from: wk, week_to: '999999', seg_type: 'A',
+      slot_a: { days: maskA, work_color: 5, off_color: 0 },
+      slot_b: { days: maskB, work_color: 5, off_color: 0 }
+    }];
+    scheduleActive = true;
+    showToast(`Day pattern active from week ${wk}`);
+  } else {
+    const map = {
+      'F': { label:'Full Work Week',  color:5 },
+      'P': { label:'Partial Week',    color:2 },
+      'G': { label:'Holiday Week',    color:6 },
+      'S': { label:'Special Week',    color:3 },
+    };
+    rules[wk] = map[type];
+    showToast(`Rule added for week ${wk}`);
+  }
+
+  document.getElementById('modalAdd').classList.add('hidden');
+  renderCalendar();
+};
+
+// Remove Rule
+document.getElementById('fabDel').onclick = () => {
+  document.getElementById('delWeek').value = '';
+  document.getElementById('modalDel').classList.remove('hidden');
+};
+document.getElementById('delCancel').onclick = () =>
+  document.getElementById('modalDel').classList.add('hidden');
+
+document.getElementById('delOk').onclick = () => {
+  const wk = document.getElementById('delWeek').value.trim();
+  if (!rules[wk]) {
+    showToast(`No rule found for week ${wk}`);
+    return;
+  }
+  delete rules[wk];
+  document.getElementById('modalDel').classList.add('hidden');
+  showToast(`Rule removed for week ${wk}`);
+  renderCalendar();
+};
+
+// Clear All
+document.getElementById('fabClr').onclick = () => {
+  if (!confirm('Remove all week rules and reset schedule?')) return;
+  Object.keys(rules).forEach(k => delete rules[k]);
+  schedule = [];
+  scheduleActive = false;
+  showToast('All week rules and schedule cleared');
+  renderCalendar();
+};
+
+// Close modals on overlay click
+document.getElementById('modalAdd').onclick = function(e) {
+  if (e.target === this) this.classList.add('hidden');
+};
+document.getElementById('modalDel').onclick = function(e) {
+  if (e.target === this) this.classList.add('hidden');
+};
+
+// ── Import modal ──────────────────────────────────────────────────────────────
+
+let holParsed   = [];   // [{ date, name }]
+let schedParsed = [];   // [{ week_from, week_to, seg_type, slot_a, slot_b }]
+
+function switchTab(which) {
+  document.getElementById('panelHol').style.display   = which === 'hol'   ? '' : 'none';
+  document.getElementById('panelSched').style.display = which === 'sched' ? '' : 'none';
+  document.getElementById('tabHol').classList.toggle('active',   which === 'hol');
+  document.getElementById('tabSched').classList.toggle('active', which === 'sched');
+}
+
+function readFile(input, onText) {
+  const f = input.files[0];
+  if (!f) return;
+  if (f.size > MAX_FILE_BYTES) {
+    showToast('File too large — maximum 500 KB');
+    input.value = '';
+    return;
+  }
+  const r = new FileReader();
+  r.onload = e => onText(e.target.result, f.name);
+  r.readAsText(f);
+}
+
+// ── Holiday CSV parser ────────────────────────────────────────────────────────
+// Expected: YYYYMMDD,Holiday Name   (one per line, # lines ignored)
+function parseHolidayCsv(text) {
+  const rows = [];
+  for (const raw of text.split('\n')) {
+    if (rows.length >= MAX_CSV_ROWS) break;
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const comma = line.indexOf(',');
+    if (comma < 0) continue;
+    const date = line.slice(0, comma).trim();
+    // Strip any surrounding quotes and limit name length to 80 chars
+    const name = line.slice(comma + 1).trim()
+                     .replace(/^"|"$/g, '')
+                     .slice(0, 80);
+    // Only accept strictly 8-digit date strings — YYYYMMDD
+    if (/^\d{8}$/.test(date) && name.length > 0) {
+      rows.push({ date, name });
+    }
+  }
+  return rows;
+}
+
+// ── Schedule CSV parser ───────────────────────────────────────────────────────
+// Expected: week_from,week_to,type,slot_a,slot_b
+// slot columns may be quoted to preserve spaces: "XXX    "
+function parseScheduleCsv(text) {
+  const segs = [];
+  for (const raw of text.split('\n')) {
+    if (segs.length >= MAX_CSV_ROWS) break;
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    // Split on comma but respect quoted fields
+    const cols = line.match(/(".*?"|[^,]+)/g) || [];
+    const clean = cols.map(c => c.trim().replace(/^"|"$/g, ''));
+    if (clean.length < 4) continue;
+    const [wf, wt, typ, sa, sb='       '] = clean;
+    // Strict format checks — reject anything that doesn't conform
+    if (!/^\d{6}$/.test(wf) || !/^\d{6}$/.test(wt)) continue;
+    if (typ !== 'A' && typ !== 'F') continue;
+    // Masks must be exactly 7 characters containing only X and space
+    const normA = sa.padEnd(7,' ').slice(0,7).toUpperCase();
+    const normB = sb.padEnd(7,' ').slice(0,7).toUpperCase();
+    if (!/^[X ]{7}$/.test(normA) || !/^[X ]{7}$/.test(normB)) continue;
+    segs.push({
+      week_from: wf,
+      week_to:   wt,
+      seg_type:  typ,
+      slot_a: { days: normA, work_color:5, off_color:0 },
+      slot_b: { days: normB, work_color:5, off_color:0 }
+    });
+  }
+  return segs;
+}
+
+// ── Holiday file input ────────────────────────────────────────────────────────
+document.getElementById('holFile').onchange = function() {
+  readFile(this, (text, name) => {
+    holParsed = parseHolidayCsv(text);
+    document.getElementById('holDropLabel').textContent =
+      `${name} — ${holParsed.length} holiday(s) found`;
+    document.getElementById('holDrop').classList.add('has-file');
+    // Preview first 5 rows
+    document.getElementById('holPreview').textContent =
+      holParsed.slice(0,5).map(h => `${h.date}  ${h.name}`).join('\n') +
+      (holParsed.length > 5 ? `\n… +${holParsed.length-5} more` : '');
+  });
+};
+// holDrop and schedDrop are <label> elements wrapping the file inputs —
+// the browser triggers the file picker natively on label click.
+// No extra onclick needed (adding one causes the dialog to open twice).
+// ── Schedule file input ───────────────────────────────────────────────────────
+document.getElementById('schedFile').onchange = function() {
+  readFile(this, (text, name) => {
+    schedParsed = parseScheduleCsv(text);
+    document.getElementById('schedDropLabel').textContent =
+      `${name} — ${schedParsed.length} segment(s) found`;
+    document.getElementById('schedDrop').classList.add('has-file');
+    document.getElementById('schedPreview').textContent =
+      schedParsed.slice(0,5).map(s =>
+        `${s.week_from}–${s.week_to}  ${s.seg_type}  |${s.slot_a.days}|  |${s.slot_b.days}|`
+      ).join('\n') +
+      (schedParsed.length > 5 ? `\n… +${schedParsed.length-5} more` : '');
+  });
+};
+
+// ── Open / close ──────────────────────────────────────────────────────────────
+document.getElementById('fabImp').onclick = () => {
+  // Reset state
+  holParsed = []; schedParsed = [];
+  document.getElementById('holFile').value = '';
+  document.getElementById('schedFile').value = '';
+  document.getElementById('holDropLabel').textContent  = 'Tap to choose CSV file';
+  document.getElementById('schedDropLabel').textContent= 'Tap to choose CSV file';
+  document.getElementById('holPreview').textContent    = '';
+  document.getElementById('schedPreview').textContent  = '';
+  document.getElementById('holDrop').classList.remove('has-file');
+  document.getElementById('schedDrop').classList.remove('has-file');
+  switchTab('hol');
+  document.getElementById('modalImp').classList.remove('hidden');
+};
+
+['impCancelHol','impCancelSched'].forEach(id =>
+  document.getElementById(id).onclick = () =>
+    document.getElementById('modalImp').classList.add('hidden')
+);
+
+document.getElementById('modalImp').onclick = function(e) {
+  if (e.target === this) this.classList.add('hidden');
+};
+
+// ── Load buttons ──────────────────────────────────────────────────────────────
+document.getElementById('impOkHol').onclick = () => {
+  if (holParsed.length === 0) { showToast('No valid holidays found in file'); return; }
+  holParsed.forEach(h => { holidays[h.date] = h.name; });
+  document.getElementById('modalImp').classList.add('hidden');
+  showToast(`${holParsed.length} holiday(s) loaded`);
+  renderCalendar();
+};
+
+document.getElementById('impOkSched').onclick = () => {
+  if (schedParsed.length === 0) { showToast('No valid segments found in file'); return; }
+  schedule = schedParsed;
+  scheduleActive = true;
+  document.getElementById('modalImp').classList.add('hidden');
+  showToast(`${schedParsed.length} schedule segment(s) loaded`);
+  renderCalendar();
+};
+
+// ── Render loaded holidays below the section head ─────────────────────────────
+function renderHolidays() {
+  const stripHol  = document.getElementById('stripHol');
+  const stripText = document.getElementById('stripHolText');
+  const holPop    = document.getElementById('holPop');
+  const prefix    = `${gYear}${String(gMonth).padStart(2,'0')}`;
+  const monthKeys = Object.keys(holidays).filter(k => k.startsWith(prefix)).sort();
+
+  // Clear popover safely
+  while (holPop.firstChild) holPop.removeChild(holPop.firstChild);
+
+  if (monthKeys.length === 0) {
+    stripHol.style.display = 'none';
+    const div = document.getElementById('statusDivider');
+    if (div) div.style.display = 'none';
+  } else {
+    stripHol.style.display = '';
+    const div = document.getElementById('statusDivider');
+    if (div) div.style.display = '';
+    stripText.textContent = `${monthKeys.length} holiday${monthKeys.length > 1 ? 's' : ''}`;
+
+    // Heading
+    const title = document.createElement('div');
+    title.className   = 'pop-title';
+    title.textContent = 'Holidays this month';
+    holPop.appendChild(title);
+
+    const MONTHS = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    monthKeys.forEach(k => {
+      const dd   = `${k.slice(6,8)} ${MONTHS[+k.slice(4,6)]}`;
+      const name = holidays[k]; // user-supplied — textContent only, no injection possible
+
+      const row  = document.createElement('div');
+      row.className = 'pop-row';
+      const dot  = document.createElement('div');
+      dot.className = 'pop-dot';
+      dot.style.background = 'var(--c6)';
+      const wkEl = document.createElement('span');
+      wkEl.className   = 'pop-wk';
+      wkEl.textContent = dd;
+      const lbEl = document.createElement('span');
+      lbEl.className   = 'pop-label';
+      lbEl.textContent = name; // safe
+      row.appendChild(dot);
+      row.appendChild(wkEl);
+      row.appendChild(lbEl);
+      holPop.appendChild(row);
+    });
+  }
+}
+
+
+// ── ICS Download ──────────────────────────────────────────────────────────────
+
+function onDlRangeChange() {
+  const v = document.getElementById('dlRange').value;
+  document.getElementById('dlCustomFields').style.display = v === 'custom' ? '' : 'none';
+  updateDlSummary();
+}
+
+function updateDlSummary() {
+  const range = getDlRange();
+  if (!range) { document.getElementById('dlSummaryText').textContent = ''; return; }
+  const days = daysBetween(range.from, range.to);
+  document.getElementById('dlSummaryText').textContent =
+    `${range.from.slice(0,4)}-${range.from.slice(4,6)} → ` +
+    `${range.to.slice(0,4)}-${range.to.slice(4,6)}  ·  ${days} day(s)`;
+}
+
+function getDlRange() {
+  const v = document.getElementById('dlRange').value;
+  if (v === 'month') {
+    return {
+      from: `${gYear}${String(gMonth).padStart(2,'0')}01`,
+      to:   lastDay(gYear, gMonth)
+    };
+  }
+  if (v === 'schedule') {
+    if (!scheduleActive || schedule.length === 0) return null;
+    const starts = schedule.map(s => s.week_from).filter(w => w !== '999999').sort();
+    const ends   = schedule.map(s => s.week_to)  .filter(w => w !== '999999').sort();
+    if (!starts.length) return null;
+    // Convert YYYYWW to first/last day of that week
+    const fromWk = starts[0];
+    const toWk   = ends[ends.length - 1];
+    return {
+      from: weekKeyToMonday(fromWk),
+      to:   addDays(weekKeyToMonday(toWk), 6)
+    };
+  }
+  // custom
+  const f = document.getElementById('dlFrom').value.trim();
+  const t = document.getElementById('dlTo').value.trim();
+  if (!/^\d{6}$/.test(f) || !/^\d{6}$/.test(t)) return null;
+  const fy = +f.slice(0,4), fm = +f.slice(4,6);
+  const ty = +t.slice(0,4), tm = +t.slice(4,6);
+  return {
+    from: `${fy}${String(fm).padStart(2,'0')}01`,
+    to:   lastDay(ty, tm)
+  };
+}
+
+function weekKeyToMonday(wk) {
+  // Convert YYYYWW → Monday YYYYMMDD using ISO week algorithm
+  const yr = +wk.slice(0,4);
+  const ww = +wk.slice(4,6);
+  // Jan 4 is always in week 1
+  const jan4 = new Date(yr, 0, 4);
+  const jan4Dow = ((jan4.getDay() + 6) % 7); // 0=Mon
+  const monday = new Date(jan4);
+  monday.setDate(jan4.getDate() - jan4Dow + (ww - 1) * 7);
+  return toDatum(monday);
+}
+
+function addDays(datum, n) {
+  const d = parseDatum(datum);
+  d.setDate(d.getDate() + n);
+  return toDatum(d);
+}
+
+function daysBetween(from, to) {
+  return Math.round((parseDatum(to) - parseDatum(from)) / 86400000) + 1;
+}
+
+// Classify a single day → 'office' | 'home' | 'holiday' | 'weekend' | null
+function classifyDay(datum) {
+  const d = parseDatum(datum);
+  const dowNum = ((d.getDay() + 6) % 7) + 1; // 1=Mon…7=Sun
+  const wk = weekKey(datum);
+  const isWknd = dowNum >= 6;
+  if (holidays[datum]) return 'holiday';
+  if (isWknd) return 'weekend';
+  // weekday — check schedule
+  if (scheduleActive) {
+    const slot = getDaySlot(wk);
+    if (slot) {
+      const maskChar = slot.days[dowNum - 1];
+      return maskChar === 'X' ? 'office' : 'home';
+    }
+  }
+  // No schedule — weekday is office by default
+  return 'office';
+}
+
+// Format YYYYMMDD → iCal DATE string
+function icsDate(datum) { return datum; }
+
+// Escape iCal text (RFC 5545)
+function icsEscape(s) {
+  return String(s).replace(/\\/g,'\\\\').replace(/;/g,'\\;')
+                  .replace(/,/g,'\\,').replace(/\n/g,'\\n');
+}
+
+// Generate UID
+let icsSeq = 0;
+function icsUid(datum) {
+  return `${datum}-${++icsSeq}@wcal`;
+}
+
+function generateIcs(range) {
+  const incOffice  = document.getElementById('dlOffice').checked;
+  const incHome    = document.getElementById('dlHome').checked;
+  const incHoliday = document.getElementById('dlHoliday').checked;
+  const incWeekend = document.getElementById('dlWeekend').checked;
+
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Work Calendar//ZMONTHLY_WORK_CALENDAR//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    `X-WR-CALNAME:Work Calendar ${monthName(gMonth)} ${gYear}`,
+    'X-WR-TIMEZONE:Europe/London',
+  ];
+
+  let cur = range.from;
+  while (cur <= range.to) {
+    const type = classifyDay(cur);
+    const include =
+      (type === 'office'  && incOffice)  ||
+      (type === 'home'    && incHome)    ||
+      (type === 'holiday' && incHoliday) ||
+      (type === 'weekend' && incWeekend);
+
+    if (include) {
+      const next = addDays(cur, 1); // DTEND is exclusive in all-day events
+      let summary, cat, color;
+      switch (type) {
+        case 'office':
+          summary = 'Office'; cat = 'WORK'; color = 'GREEN'; break;
+        case 'home':
+          summary = 'Home'; cat = 'WORK'; color = 'GRAY'; break;
+        case 'holiday':
+          summary = icsEscape(holidays[cur] || 'Public Holiday');
+          cat = 'HOLIDAY'; color = 'RED'; break;
+        case 'weekend':
+          summary = 'Weekend'; cat = 'PERSONAL'; color = 'GRAY'; break;
+      }
+      lines.push(
+        'BEGIN:VEVENT',
+        `UID:${icsUid(cur)}`,
+        `DTSTART;VALUE=DATE:${icsDate(cur)}`,
+        `DTEND;VALUE=DATE:${icsDate(next)}`,
+        `SUMMARY:${summary}`,
+        `CATEGORIES:${cat}`,
+        `X-APPLE-CALENDAR-COLOR:${color}`,
+        'TRANSP:TRANSPARENT',
+        'END:VEVENT'
+      );
+    }
+    cur = addDays(cur, 1);
+  }
+
+  lines.push('END:VCALENDAR');
+  // RFC 5545: lines must be folded at 75 octets — skip folding for simplicity
+  // as modern clients handle long lines
+  return lines.join('\r\n') + '\r\n';
+}
+
+function downloadIcs(content, filename) {
+  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ── Download modal wiring ──────────────────────────────────────────────────────
+
+document.getElementById('fabDl').onclick = () => {
+  document.getElementById('dlRange').value = 'month';
+  document.getElementById('dlCustomFields').style.display = 'none';
+  document.getElementById('dlFrom').value = `${gYear}${String(gMonth).padStart(2,'0')}`;
+  document.getElementById('dlTo').value   = `${gYear}${String(gMonth).padStart(2,'0')}`;
+  updateDlSummary();
+  document.getElementById('modalDl').classList.remove('hidden');
+};
+
+document.getElementById('dlCancel').onclick = () =>
+  document.getElementById('modalDl').classList.add('hidden');
+
+document.getElementById('modalDl').onclick = function(e) {
+  if (e.target === this) this.classList.add('hidden');
+};
+
+['dlRange','dlOffice','dlHome','dlHoliday','dlWeekend','dlFrom','dlTo'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('change', updateDlSummary);
+  if (el.tagName === 'INPUT' && el.type === 'text') el.addEventListener('input', updateDlSummary);
+});
+
+document.getElementById('dlOk').onclick = () => {
+  const range = getDlRange();
+  if (!range) { showToast('Invalid range — check your dates'); return; }
+  icsSeq = 0;
+  const content  = generateIcs(range);
+  const filename = `work-calendar-${range.from.slice(0,6)}-${range.to.slice(0,6)}.ics`;
+  downloadIcs(content, filename);
+  document.getElementById('modalDl').classList.add('hidden');
+  showToast('Calendar downloaded');
+};
+
+// ── Admin mode ────────────────────────────────────────────────────────────────
+//
+// State machine:
+//   user mode  (default) — FAB bar hidden, lock icon shown
+//   admin mode           — FAB bar visible, unlock icon shown
+//
+// PIN is stored as a SHA-256 hex digest in localStorage.
+// The raw PIN is never stored anywhere.
+//
+// First unlock: user sets a new PIN (confirmed twice).
+// Subsequent unlocks: user enters the existing PIN.
+// Locking: instant — no PIN required to lock.
+
+const ADMIN_PIN_KEY  = 'wcal-admin-pin';
+const ADMIN_MODE_KEY = 'wcal-admin-mode';
+
+let adminMode = false;
+let pinAction = 'unlock'; // 'set' | 'confirm' | 'unlock'
+let pendingPin = '';
+
+async function sha256(text) {
+  const buf = await crypto.subtle.digest('SHA-256',
+    new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf))
+    .map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+function getStoredHash() {
+  try { return localStorage.getItem(ADMIN_PIN_KEY) || ''; } catch(e) { return ''; }
+}
+
+function setAdminMode(on) {
+  adminMode = on;
+  document.body.classList.toggle('admin-mode', on);
+  document.getElementById('btnAdmin').textContent = on ? '🔓' : '🔒';
+  document.getElementById('btnAdmin').title = on ? 'Lock (exit admin)' : 'Admin mode';
+  try { localStorage.setItem(ADMIN_MODE_KEY, on ? '1' : ''); } catch(e) {}
+  updateSettingsBtn();
+}
+
+function openPinModal(action, hint = '') {
+  pinAction = action;
+  const titles = { set: 'Set Admin PIN', confirm: 'Confirm PIN', unlock: 'Admin Access' };
+  const labels = { set: 'Choose a PIN (4–8 digits)', confirm: 'Re-enter PIN to confirm', unlock: 'Enter PIN' };
+  document.getElementById('pinModalTitle').textContent = titles[action] || 'Admin Access';
+  document.getElementById('pinFieldLabel').textContent = labels[action] || 'Enter PIN';
+  document.getElementById('pinHint').textContent = hint;
+  document.getElementById('pinInput').value = '';
+  document.getElementById('modalPin').classList.remove('hidden');
+  // Autofocus after animation
+  setTimeout(() => document.getElementById('pinInput').focus(), 80);
+}
+
+document.getElementById('btnAdmin').onclick = () => {
+  if (adminMode) {
+    // Lock immediately — no PIN needed
+    setAdminMode(false);
+    showToast('Admin mode off');
+    return;
+  }
+  // Unlock — check if a PIN exists
+  if (getStoredHash()) {
+    openPinModal('unlock');
+  } else {
+    // First time — prompt to set a PIN
+    openPinModal('set', 'You are setting the admin PIN for the first time.');
+  }
+};
+
+document.getElementById('pinCancel').onclick = () => {
+  pendingPin = '';
+  document.getElementById('modalPin').classList.add('hidden');
+};
+
+document.getElementById('modalPin').onclick = function(e) {
+  if (e.target === this) {
+    pendingPin = '';
+    this.classList.add('hidden');
+  }
+};
+
+// Allow Enter key to submit
+document.getElementById('pinInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('pinOk').click();
+});
+
+document.getElementById('pinOk').onclick = async () => {
+  const val = document.getElementById('pinInput').value.trim();
+
+  if (!/^\d{4,8}$/.test(val)) {
+    document.getElementById('pinHint').textContent = 'PIN must be 4–8 digits.';
+    document.getElementById('pinInput').value = '';
+    document.getElementById('pinInput').focus();
+    return;
+  }
+
+  if (pinAction === 'set') {
+    // Store pending and ask for confirmation
+    pendingPin = val;
+    openPinModal('confirm', 'Re-enter to confirm your new PIN.');
+    return;
+  }
+
+  if (pinAction === 'confirm') {
+    if (val !== pendingPin) {
+      pendingPin = '';
+      openPinModal('set', 'PINs did not match — please try again.');
+      return;
+    }
+    // Save hash and enter admin mode
+    const hash = await sha256(val);
+    try { localStorage.setItem(ADMIN_PIN_KEY, hash); } catch(e) {}
+    pendingPin = '';
+    document.getElementById('modalPin').classList.add('hidden');
+    setAdminMode(true);
+    showToast('PIN set — admin mode on');
+    return;
+  }
+
+  if (pinAction === 'unlock') {
+    const hash = await sha256(val);
+    if (hash === getStoredHash()) {
+      document.getElementById('modalPin').classList.add('hidden');
+      setAdminMode(true);
+      showToast('Admin mode on');
+    } else {
+      document.getElementById('pinHint').textContent = 'Incorrect PIN.';
+      document.getElementById('pinInput').value = '';
+      document.getElementById('pinInput').focus();
+    }
+    return;
+  }
+};
+
+// Restore admin mode across page reloads only if previously active
+// (session-scoped — closing the tab always resets to user mode)
+try {
+  if (localStorage.getItem(ADMIN_MODE_KEY) === '1' && getStoredHash()) {
+    setAdminMode(true);
+  }
+} catch(e) {}
+
+// ── Brand settings ───────────────────────────────────────────────────────────
+
+const BRAND_DEFAULTS = {
+  orgTop: 'Work',
+  orgBot: 'Calendar',
+  tag1:   'My',
+  tag2:   'Team'
+};
+
+const BRAND_KEY = 'wcal-brand';
+
+function loadBrand() {
+  try {
+    const saved = localStorage.getItem(BRAND_KEY);
+    return saved ? { ...BRAND_DEFAULTS, ...JSON.parse(saved) } : { ...BRAND_DEFAULTS };
+  } catch(e) { return { ...BRAND_DEFAULTS }; }
+}
+
+function applyBrand(b) {
+  document.getElementById('orgTop').textContent    = escHtml(b.orgTop) || BRAND_DEFAULTS.orgTop;
+  document.getElementById('orgBot').textContent    = escHtml(b.orgBot) || BRAND_DEFAULTS.orgBot;
+  document.getElementById('tagLine1').textContent  = escHtml(b.tag1);
+  document.getElementById('tagLine2').textContent  = escHtml(b.tag2);
+  // Hide tagline block if both lines are blank
+  document.getElementById('taglineBlock').style.display =
+    (b.tag1 || b.tag2) ? '' : 'none';
+  document.title = `${b.orgBot || 'Work Calendar'} — Work Calendar`;
+}
+
+// Load on startup
+applyBrand(loadBrand());
+
+// Settings button — visible only in admin mode
+function updateSettingsBtn() {
+  document.getElementById('btnSettings').style.display =
+    document.body.classList.contains('admin-mode') ? '' : 'none';
+}
+
+document.getElementById('btnSettings').onclick = () => {
+  const b = loadBrand();
+  document.getElementById('brandOrgTop').value = b.orgTop;
+  document.getElementById('brandOrgBot').value = b.orgBot;
+  document.getElementById('brandTag1').value   = b.tag1;
+  document.getElementById('brandTag2').value   = b.tag2;
+  document.getElementById('modalBrand').classList.remove('hidden');
+};
+
+document.getElementById('brandCancel').onclick = () =>
+  document.getElementById('modalBrand').classList.add('hidden');
+
+document.getElementById('modalBrand').onclick = function(e) {
+  if (e.target === this) this.classList.add('hidden');
+};
+
+document.getElementById('brandSave').onclick = () => {
+  const b = {
+    orgTop: document.getElementById('brandOrgTop').value.trim(),
+    orgBot: document.getElementById('brandOrgBot').value.trim(),
+    tag1:   document.getElementById('brandTag1').value.trim(),
+    tag2:   document.getElementById('brandTag2').value.trim()
+  };
+  try { localStorage.setItem(BRAND_KEY, JSON.stringify(b)); } catch(e) {}
+  applyBrand(b);
+  document.getElementById('modalBrand').classList.add('hidden');
+  showToast('Brand updated');
+};
+
+// ── Logo upload ───────────────────────────────────────────────────────────────
+
+function applyLogo(dataUrl) {
+  const img   = document.getElementById('logoImg');
+  const text  = document.getElementById('logoText');
+  const reset = document.getElementById('logoReset');
+  if (dataUrl) {
+    img.src = dataUrl;
+    img.style.display = 'block';
+    text.style.display = 'none';
+    reset.style.display = 'flex';
+  } else {
+    img.src = '';
+    img.style.display = 'none';
+    text.style.display = '';
+    reset.style.display = 'none';
+  }
+}
+
+// Load saved logo on startup
+try {
+  const saved = localStorage.getItem('wcal-logo');
+  if (saved) applyLogo(saved);
+} catch(e) {}
+
+// Click slot → open file picker (but not if clicking the reset button)
+document.getElementById('logoSlot').onclick = (e) => {
+  if (e.target.closest('#logoReset')) return;
+  document.getElementById('logoFile').click();
+};
+
+// Reset button → clear logo
+document.getElementById('logoReset').onclick = (e) => {
+  e.stopPropagation();
+  applyLogo(null);
+  try { localStorage.removeItem('wcal-logo'); } catch(err) {}
+  showToast('Logo reset');
+};
+
+document.getElementById('logoFile').onchange = function() {
+  const f = this.files[0];
+  if (!f) return;
+  if (f.size > 2 * 1024 * 1024) { showToast('Image too large — max 2 MB'); return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const dataUrl = e.target.result;
+    applyLogo(dataUrl);
+    try { localStorage.setItem('wcal-logo', dataUrl); } catch(err) {}
+    showToast('Logo updated');
+  };
+  reader.readAsDataURL(f);
+  this.value = '';
+};
+
+// ── Theme toggle ──────────────────────────────────────────────────────────────
+
+const html = document.documentElement;
+const btnTheme = document.getElementById('btnTheme');
+
+function applyTheme(dark) {
+  html.setAttribute('data-theme', dark ? 'dark' : 'light');
+  btnTheme.textContent = dark ? '🌙' : '☀️';
+  btnTheme.title = dark ? 'Switch to light mode' : 'Switch to dark mode';
+  try { localStorage.setItem('wcal-theme', dark ? 'dark' : 'light'); } catch(e){}
+}
+
+// Load saved preference, default to light
+const saved = (() => { try { return localStorage.getItem('wcal-theme'); } catch(e){ return null; } })();
+applyTheme(saved === 'dark');
+
+btnTheme.onclick = () => applyTheme(html.getAttribute('data-theme') !== 'dark');
+
+// ── Floating tooltip (holiday name) ──────────────────────────────────────────
+// Uses a fixed-position div positioned via JS so it never clips off-screen
+// regardless of scroll, overflow:hidden parents, or device orientation.
+
+const floatTip = document.getElementById('floatTip');
+let tipTimer;
+
+function showTip(cell) {
+  const text = cell.getAttribute('data-tooltip');
+  if (!text) return;
+  floatTip.textContent = escHtml(text);
+  floatTip.classList.add('visible');
+  positionTip(cell);
+}
+
+function positionTip(cell) {
+  const r   = cell.getBoundingClientRect();
+  const tw  = floatTip.offsetWidth  || 120;
+  const th  = floatTip.offsetHeight || 28;
+  const pad = 8;
+
+  // Prefer above the cell; fall back to below if not enough space
+  let top = r.top - th - pad;
+  if (top < pad) top = r.bottom + pad;
+
+  // Clamp horizontally to viewport
+  let left = r.left + r.width / 2 - tw / 2;
+  left = Math.max(pad, Math.min(left, window.innerWidth - tw - pad));
+
+  floatTip.style.top  = `${top}px`;
+  floatTip.style.left = `${left}px`;
+}
+
+function hideTip() {
+  floatTip.classList.remove('visible');
+  clearTimeout(tipTimer);
+}
+
+// Desktop hover
+document.addEventListener('mouseover', e => {
+  const cell = e.target.closest('[data-tooltip]');
+  if (cell) showTip(cell); else hideTip();
+});
+
+// Touch long-press (500ms)
+let activeTipCell = null;
+document.addEventListener('touchstart', e => {
+  const cell = e.target.closest('[data-tooltip]');
+  if (!cell) return;
+  tipTimer = setTimeout(() => {
+    activeTipCell = cell;
+    showTip(cell);
+  }, 500);
+}, { passive: true });
+
+document.addEventListener('touchend', () => {
+  clearTimeout(tipTimer);
+  if (activeTipCell) {
+    setTimeout(hideTip, 1600);
+    activeTipCell = null;
+  }
+}, { passive: true });
+
+document.addEventListener('touchmove', () => {
+  clearTimeout(tipTimer);
+  hideTip();
+}, { passive: true });
+
+// ── Strip popover positioning — clamp to viewport ─────────────────────────────
+// Popovers are position:fixed so getBoundingClientRect gives correct coords.
+
+function positionPopover(anchor) {
+  const pop = anchor.querySelector('.strip-pop');
+  if (!pop || pop.style.display === 'none') return;
+  const ar  = anchor.getBoundingClientRect();
+  const pw  = pop.offsetWidth  || 220;
+  const ph  = pop.offsetHeight || 100;
+  const pad = 8;
+
+  // Always above the footer strip
+  let top  = ar.top - ph - 10;
+  if (top < pad) top = pad;
+
+  // Start aligned to anchor left, then clamp
+  let left = ar.left;
+  left = Math.max(pad, Math.min(left, window.innerWidth - pw - pad));
+
+  pop.style.top  = `${top}px`;
+  pop.style.left = `${left}px`;
+}
+
+document.querySelectorAll('.strip-pop-anchor').forEach(anchor => {
+  anchor.addEventListener('mouseenter', () => {
+    // Show pop first so it has dimensions
+    requestAnimationFrame(() => positionPopover(anchor));
+  });
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+
+// Force layout recalculation on orientation / resize so dvh/svh updates
+// correctly on iOS Safari and Android Chrome where the browser toolbar
+// appears and disappears changing the effective viewport height.
+function onViewportResize() {
+  // Writing to a CSS custom property forces a synchronous style recalc
+  document.documentElement.style.setProperty(
+    '--vh', `${window.innerHeight * 0.01}px`
+  );
+}
+window.addEventListener('resize', onViewportResize, { passive: true });
+window.addEventListener('orientationchange', () => {
+  // Small delay to let the browser settle the new viewport dimensions
+  setTimeout(onViewportResize, 120);
+}, { passive: true });
+onViewportResize();
+
+initSchedule();
+renderCalendar();
+</script>
+</body>
+</html>
